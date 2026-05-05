@@ -195,7 +195,7 @@ start_daemon() {
     if command -v setsid >/dev/null 2>&1; then
       launch_prefix=(setsid)
     fi
-    nohup "${launch_prefix[@]}" "${UV_BIN}" run --project "${PROJECT_ROOT}" ltspice-mcp \
+    nohup ${launch_prefix[@]+"${launch_prefix[@]}"} "${UV_BIN}" run --project "${PROJECT_ROOT}" ltspice-mcp \
       --daemon-http \
       --host "${HOST}" \
       --port "${PORT}" \
