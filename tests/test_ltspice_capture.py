@@ -159,6 +159,7 @@ class TestScreenCaptureKitPath(unittest.TestCase):
             }
 
         with (
+            patch("ltspice_mcp.ltspice.platform.system", return_value="Darwin"),
             patch("ltspice_mcp.ltspice.open_in_ltspice_ui") as open_mock,
             patch(
                 "ltspice_mcp.ltspice._capture_ltspice_window_with_screencapturekit",
@@ -209,6 +210,7 @@ class TestScreenCaptureKitPath(unittest.TestCase):
         open_path.write_text("Version 4\nSHEET 1 100 100\n", encoding="utf-8")
 
         with (
+            patch("ltspice_mcp.ltspice.platform.system", return_value="Darwin"),
             patch("ltspice_mcp.ltspice.open_in_ltspice_ui") as open_mock,
             patch(
                 "ltspice_mcp.ltspice._capture_ltspice_window_with_screencapturekit",
@@ -242,6 +244,7 @@ class TestScreenCaptureKitPath(unittest.TestCase):
             return CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
         with (
+            patch("ltspice_mcp.ltspice.platform.system", return_value="Darwin"),
             patch("ltspice_mcp.ltspice.open_in_ltspice_ui") as open_mock,
             patch("ltspice_mcp.ltspice.subprocess.run", side_effect=_run_side_effect),
             patch("ltspice_mcp.ltspice.close_ltspice_window") as close_mock,

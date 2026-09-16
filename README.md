@@ -162,6 +162,67 @@ Permission helpers:
 ./scripts/ltspice_mcp_daemon.sh trigger-accessibility-permission
 ```
 
+## Windows
+
+This server also runs natively on Windows (LTspice's original platform). macOS-only
+pieces (ScreenCaptureKit capture, Accessibility-API text reading, AppleScript window
+control, the bash daemon script) have real Windows equivalents implemented in
+`src/ltspice_mcp/windows_ui.py`, dispatched automatically when `platform.system() ==
+"Windows"`. macOS behavior is unchanged.
+
+### LTspice binary detection
+
+`LTSPICE_BINARY` is checked first (same as macOS). If unset, the server probes, in order:
+- `%LOCALAPPDATA%\Programs\ADI\LTspice\LTspice.exe` (current LTspice installer default)
+- `%LOCALAPPDATA%\LTspice\LTspice.exe`
+- `%ProgramFiles%\ADI\LTspice\LTspice.exe`
+- `%ProgramFiles%\ADI\LTspiceXVII\XVIIx64.exe`
+- `%ProgramFiles(x86)%\LTC\LTspiceXVII\XVIIx64.exe` (older LTspice XVII releases)
+- `%ProgramFiles(x86)%\LTC\LTspiceIV\scad3.exe` (legacy LTspice IV)
+- a bounded 1-2-level-deep scan under those Program Files roots, only if none of the above exist
+
+### Windows dependencies
+
+Installed automatically as `sys_platform == 'win32'` extras via `pip install -e .`:
+- `pywin32` — window discovery/automation (`win32gui`, `win32ui`, `win32process`)
+- `Pillow` — PNG encode/decode for capture, downscaling, and dimension probing
+- `mss` — full-screen region-grab fallback when `PrintWindow` yields a blank image
+
+### Windows daemon script
+
+`scripts/ltspice_mcp_daemon.sh` is bash-only; use the PowerShell equivalent instead:
+
+```powershell
+./scripts/ltspice_mcp_daemon.ps1 start
+./scripts/ltspice_mcp_daemon.ps1 restart
+./scripts/ltspice_mcp_daemon.ps1 stop
+./scripts/ltspice_mcp_daemon.ps1 status
+./scripts/ltspice_mcp_daemon.ps1 logs -Lines 200
+./scripts/ltspice_mcp_daemon.ps1 logs -Follow
+```
+
+It tracks the background process's PID in `.mcp-workdir/daemon/ltspice-mcp-daemon.pid` and
+writes stdout/stderr to a timestamped log file, mirroring the bash script's behavior. It
+supports the same `LTSPICE_MCP_DAEMON_*` / `UV_BIN` environment overrides.
+
+The bash script's `trigger-initial-permissions` / `check-accessibility` /
+`trigger-accessibility-permission` / `trigger-screen-recording-permission` subcommands are
+**not** implemented on Windows: those exist only to trigger macOS's one-time Accessibility
+and Screen Recording consent dialogs, and Windows has no equivalent consent system for
+window capture or UI automation, so there is nothing to port.
+
+### What's still macOS-only
+
+- **Window text reading is approximate, not equivalent.** `readLtspiceUiText` on Windows
+  reads text via `WM_GETTEXT` on the matched window's child controls (edit/static), which
+  works for simple dialogs and log-style windows but cannot read LTspice's self-drawn
+  canvas content (schematic/plot panes) — the macOS Accessibility API can do a bit more
+  here for dialog trees, but neither platform can read canvas-drawn content as text.
+- The Swift/ScreenCaptureKit helper compilation path (`_ensure_screencapturekit_helper`
+  and friends) is macOS-only and is simply not invoked on Windows; capture goes through
+  `windows_ui.capture_window` (`PrintWindow`, with an `mss` full-screen-region fallback)
+  instead.
+
 ## Testing
 
 Run core tests:

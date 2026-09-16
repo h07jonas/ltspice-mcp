@@ -1579,21 +1579,55 @@ def find_ltspice_executable(explicit: str | Path | None = None) -> Path | None:
         if which:
             candidates.append(Path(which))
 
-    candidates.extend(
-        [
-            Path("/Applications/LTspice.app/Contents/MacOS/LTspice"),
-            Path("/Applications/LTspice.app/Contents/MacOS/LTspice XVII"),
-            Path("/Applications/ADI/LTspice/LTspice.app/Contents/MacOS/LTspice"),
-            Path.home() / "Applications/LTspice.app/Contents/MacOS/LTspice",
-            Path.home() / "Applications/ADI/LTspice/LTspice.app/Contents/MacOS/LTspice",
+    if platform.system() == "Windows":
+        local_appdata = os.getenv("LOCALAPPDATA")
+        program_files = os.getenv("ProgramFiles", r"C:\Program Files")
+        program_files_x86 = os.getenv("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        known_paths = [
+            Path(local_appdata) / "Programs" / "ADI" / "LTspice" / "LTspice.exe"
+            if local_appdata
+            else None,
+            Path(local_appdata) / "LTspice" / "LTspice.exe" if local_appdata else None,
+            Path(program_files) / "ADI" / "LTspice" / "LTspice.exe",
+            Path(program_files) / "ADI" / "LTspiceXVII" / "XVIIx64.exe",
+            Path(program_files_x86) / "LTC" / "LTspiceXVII" / "XVIIx64.exe",
+            Path(program_files_x86) / "LTC" / "LTspiceIV" / "scad3.exe",
         ]
-    )
+        candidates.extend(path for path in known_paths if path is not None)
 
-    for root in (Path("/Applications"), Path.home() / "Applications"):
-        if not root.exists():
-            continue
-        for app_dir in root.glob("**/LTspice*.app/Contents/MacOS/*"):
-            candidates.append(app_dir)
+        # Only fall back to a bounded directory probe if none of the fast/known
+        # candidates already resolve, to avoid the cost of scanning
+        # C:\Program Files on every call (e.g. LTspice not installed at all).
+        if not any(_is_executable(c.expanduser().resolve()) for c in candidates if c is not None):
+            for root in (
+                Path(local_appdata) / "Programs" if local_appdata else None,
+                Path(program_files),
+                Path(program_files_x86),
+            ):
+                if root is None or not root.exists():
+                    continue
+                for pattern in ("*/LTspice*.exe", "*/*/LTspice*.exe", "*/XVII*.exe", "*/*/XVII*.exe"):
+                    try:
+                        for exe in root.glob(pattern):
+                            candidates.append(exe)
+                    except OSError:
+                        continue
+    else:
+        candidates.extend(
+            [
+                Path("/Applications/LTspice.app/Contents/MacOS/LTspice"),
+                Path("/Applications/LTspice.app/Contents/MacOS/LTspice XVII"),
+                Path("/Applications/ADI/LTspice/LTspice.app/Contents/MacOS/LTspice"),
+                Path.home() / "Applications/LTspice.app/Contents/MacOS/LTspice",
+                Path.home() / "Applications/ADI/LTspice/LTspice.app/Contents/MacOS/LTspice",
+            ]
+        )
+
+        for root in (Path("/Applications"), Path.home() / "Applications"):
+            if not root.exists():
+                continue
+            for app_dir in root.glob("**/LTspice*.app/Contents/MacOS/*"):
+                candidates.append(app_dir)
 
     seen: set[Path] = set()
     for candidate in candidates:
@@ -1771,6 +1805,10 @@ def tail_text_file(path: Path | None, max_lines: int = 120) -> str:
 
 
 def is_ltspice_ui_running() -> bool:
+    if platform.system() == "Windows":
+        from . import windows_ui
+
+        return windows_ui.is_ltspice_ui_running()
     try:
         proc = subprocess.run(
             ["pgrep", "-x", "LTspice"],
@@ -1791,8 +1829,12 @@ def open_in_ltspice_ui(
     target = Path(path).expanduser().resolve()
     if not target.exists():
         raise FileNotFoundError(f"Cannot open missing path in LTspice UI: {target}")
+    if platform.system() == "Windows":
+        from . import windows_ui
+
+        return windows_ui.open_in_ltspice_ui(target, background=background)
     if platform.system() != "Darwin":
-        raise RuntimeError("LTspice UI integration is currently implemented for macOS only.")
+        raise RuntimeError("LTspice UI integration is currently implemented for macOS and Windows only.")
 
     command = ["open"]
     effective_background = bool(background)
@@ -2112,8 +2154,18 @@ def close_ltspice_window(
             "window_id": window_id,
             "error": "Provide at least one selector (title_hint, exact_title, or positive window_id)",
         }
+    if platform.system() == "Windows":
+        from . import windows_ui
+
+        return windows_ui.close_ltspice_window(
+            title_hint=title_contains,
+            exact_title=title_exact or None,
+            window_id=target_window_id,
+            attempts=attempts,
+            retry_delay=retry_delay,
+        )
     if platform.system() != "Darwin":
-        raise RuntimeError("LTspice UI integration is currently implemented for macOS only.")
+        raise RuntimeError("LTspice UI integration is currently implemented for macOS and Windows only.")
 
     def _escape_applescript_string(value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"')
@@ -2276,8 +2328,17 @@ def read_ltspice_window_text(
             "text": "",
             "matched_windows": 0,
         }
+    if platform.system() == "Windows":
+        from . import windows_ui
+
+        return windows_ui.read_ltspice_window_text(
+            title_hint=title_contains,
+            exact_title=title_exact or None,
+            window_id=target_window_id,
+            max_chars=max_chars,
+        )
     if platform.system() != "Darwin":
-        raise RuntimeError("LTspice UI integration is currently implemented for macOS only.")
+        raise RuntimeError("LTspice UI integration is currently implemented for macOS and Windows only.")
 
     safe_max_chars = max(512, min(2_000_000, int(max_chars)))
     try:
@@ -2559,8 +2620,15 @@ def _downscale_image_file(path: Path, downscale_factor: float) -> dict[str, Any]
     if downscale_factor <= 0:
         raise ValueError("downscale_factor must be > 0")
 
+    if platform.system() == "Windows":
+        from . import windows_ui
+
+        try:
+            return windows_ui.downscale_image_file(path, downscale_factor)
+        except Exception as exc:  # noqa: BLE001
+            return {"downscaled": False, "warning": str(exc)}
     if platform.system() != "Darwin":
-        return {"downscaled": False, "warning": "downscale currently implemented with macOS sips"}
+        return {"downscaled": False, "warning": "downscale currently implemented for macOS and Windows only"}
 
     probe = subprocess.run(
         ["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)],
@@ -2599,6 +2667,10 @@ def _downscale_image_file(path: Path, downscale_factor: float) -> dict[str, Any]
 
 
 def _probe_image_dimensions(path: Path) -> tuple[int | None, int | None]:
+    if platform.system() == "Windows":
+        from . import windows_ui
+
+        return windows_ui.probe_image_dimensions(path)
     if platform.system() != "Darwin":
         return None, None
     probe = subprocess.run(
@@ -2616,6 +2688,96 @@ def _probe_image_dimensions(path: Path) -> tuple[int | None, int | None]:
     return int(width_match.group(1)), int(height_match.group(1))
 
 
+def _capture_ltspice_window_screenshot_windows(
+    *,
+    target: Path,
+    open_path: str | Path | None,
+    settle_seconds: float,
+    downscale_factor: float,
+    title_hint: str | None,
+    close_after_capture: bool,
+    capture_id: str,
+    started_monotonic: float,
+) -> dict[str, Any]:
+    """Windows equivalent of the macOS ScreenCaptureKit capture path, using
+    win32gui window discovery + PrintWindow (see windows_ui.py)."""
+    from . import windows_ui
+
+    open_event: dict[str, Any] | None = None
+    close_event: dict[str, Any] | None = None
+    opened_window = False
+    if open_path is not None:
+        open_event = open_in_ltspice_ui(open_path, background=True)
+        if not open_event.get("opened", False):
+            raise RuntimeError(
+                f"Failed to open LTspice UI target (capture_id={capture_id}): {open_event}"
+            )
+        opened_window = True
+
+    if settle_seconds > 0:
+        time.sleep(settle_seconds)
+
+    if title_hint is None and open_path is not None:
+        # LTspice's Windows MDI title bar shows the document stem without its
+        # extension, e.g. "LTspice - [common_source_nmos]" for common_source_nmos.asc.
+        title_hint = Path(open_path).stem
+
+    matches = windows_ui.find_ltspice_windows(title_hint=title_hint or "")
+    if not matches:
+        raise RuntimeError(
+            f"No LTspice window found to capture (capture_id={capture_id}, title_hint={title_hint!r})"
+        )
+    hwnd = matches[0]["hwnd"]
+    window_title = matches[0]["title"]
+
+    try:
+        capture_info = windows_ui.capture_window(hwnd, target)
+    finally:
+        if opened_window and close_after_capture:
+            try:
+                close_event = windows_ui.close_ltspice_window(
+                    title_hint=title_hint or "",
+                    window_id=hwnd,
+                    attempts=5,
+                    retry_delay=0.2,
+                )
+            except Exception as exc:  # noqa: BLE001
+                close_event = {"closed": False, "error": str(exc)}
+
+    if not target.exists():
+        raise FileNotFoundError(
+            f"Screenshot capture did not produce file (capture_id={capture_id}): {target}"
+        )
+
+    downscale_info = _downscale_image_file(target, downscale_factor=downscale_factor)
+    width, height = _probe_image_dimensions(target)
+    elapsed = round(time.monotonic() - started_monotonic, 6)
+    return {
+        "capture_id": capture_id,
+        "image_path": str(target),
+        "format": target.suffix.lstrip(".").lower() or "png",
+        "window_id": hwnd,
+        "capture_command": None,
+        "capture_backend": capture_info.get("backend", "win32_print_window"),
+        "capture_window_info": {"window_id": hwnd, "window_title": window_title},
+        "open_event": open_event,
+        "close_event": close_event,
+        "avoid_space_switch": True,
+        "downscale_factor": float(downscale_factor),
+        "downscale": downscale_info,
+        "width": width,
+        "height": height,
+        "capture_stderr": "",
+        "capture_diagnostics": {
+            "capture_id": capture_id,
+            "elapsed_seconds": elapsed,
+            "settle_seconds": float(settle_seconds),
+            "title_hint_used": title_hint,
+            "platform": "Windows",
+        },
+    }
+
+
 def capture_ltspice_window_screenshot(
     *,
     output_path: str | Path,
@@ -2631,6 +2793,19 @@ def capture_ltspice_window_screenshot(
     target.parent.mkdir(parents=True, exist_ok=True)
     started_monotonic = time.monotonic()
     capture_id = uuid4().hex[:12]
+
+    if platform.system() == "Windows":
+        return _capture_ltspice_window_screenshot_windows(
+            target=target,
+            open_path=open_path,
+            settle_seconds=settle_seconds,
+            downscale_factor=downscale_factor,
+            title_hint=title_hint,
+            close_after_capture=close_after_capture,
+            capture_id=capture_id,
+            started_monotonic=started_monotonic,
+        )
+
     preflight = {
         "platform": platform.system(),
         "prefer_screencapturekit": bool(prefer_screencapturekit),
