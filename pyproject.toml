@@ -9,7 +9,7 @@ description = "Model Context Protocol server for LTspice on macOS"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "mcp>=1.6.0",
+  "mcp>=1.6.0,<2",
 ]
 
 [project.scripts]
