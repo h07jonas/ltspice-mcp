@@ -6220,12 +6220,7 @@ def readAgentGuide(
     include_headings: bool = True,
     max_chars: int = 20000,
 ) -> dict[str, Any]:
-    """
-    Read AGENT_README.md through MCP for interactive agent guidance.
-
-    - section: heading index (1-based) or heading title (exact/contains match)
-    - query: optional case-insensitive text search
-    """
+    """Read AGENT_README.md through MCP for interactive agent guidance. `section`: heading index (1-based) or heading title (exact/contains match). `query`: optional case-insensitive text search."""
     safe_max_chars = max(500, min(120000, int(max_chars)))
     text = _read_agent_readme_text()
     headings = _parse_markdown_headings(text)
@@ -6582,19 +6577,11 @@ def runVerificationPlan(
     """
     Run simulation (or reuse a run) and evaluate assertion checks in one call.
 
-    Assertion types:
-    - `vector_stat`: vector + statistic(min|max|avg|rms|pp|final|abs_max)
-    - `bandwidth`: vector (+ optional drop_db/reference/metric)
-    - `gain_phase_margin`: vector (+ optional metric)
-    - `rise_fall_time`: vector (+ optional metric)
-    - `settling_time`: vector (+ optional tolerance_percent/target_value)
-    - `meas`: name from .meas results
-    - `all_of`: all nested assertions must pass
-    - `any_of`: at least one nested assertion must pass
-    Bounds:
-    - `min`, `max`
-    Tolerances:
-    - `target` (+ optional `rel_tol_pct`, `abs_tol`)
+    Assertion types: `vector_stat` (vector + statistic: min|max|avg|rms|pp|final|abs_max),
+    `bandwidth` (vector + optional drop_db/reference/metric), `gain_phase_margin` (vector + optional metric),
+    `rise_fall_time` (vector + optional metric), `settling_time` (vector + optional tolerance_percent/target_value),
+    `meas` (name from .meas results), `all_of`/`any_of` (nested assertions, all/any must pass).
+    Bounds: `min`, `max`. Tolerances: `target` (+ optional `rel_tol_pct`, `abs_tol`).
     """
     if not assertions:
         raise ValueError("assertions must contain at least one assertion object")
@@ -7199,9 +7186,7 @@ def generateVerifyAndCleanCircuit(
     show_ui: bool | None = None,
     fail_fast_verification: bool = False,
 ) -> dict[str, Any]:
-    """
-    One-shot orchestration: create intent circuit, lint, simulate, verify, clean, and inspect.
-    """
+    """One-shot orchestration: create intent circuit, lint, simulate, verify, clean, and inspect."""
     safe_params = parameters or {}
     created = createIntentCircuit(
         intent=intent,
@@ -7854,11 +7839,7 @@ def renderLtspiceSymbolImage(
     include_pin_labels: bool = True,
     lib_zip_path: str | None = None,
 ) -> CallToolResult:
-    """
-    Render an LTspice symbol to an image and return the image through MCP.
-
-    The response includes both image content and structured metadata (image_path, bounds, etc.).
-    """
+    """Render an LTspice symbol to an image and return it through MCP, with structured metadata (image_path, bounds, etc.) alongside the image content."""
     if not symbol.strip():
         raise ValueError("symbol must be a non-empty string")
 
@@ -7923,11 +7904,7 @@ def renderLtspiceSchematicImage(
     lib_zip_path: str | None = None,
     render_session_id: str | None = None,
 ) -> CallToolResult:
-    """
-    Render an LTspice schematic (.asc) to an image and return it through MCP.
-
-    `downscale_factor` lets clients request smaller rendered images.
-    """
+    """Render an LTspice schematic (.asc) to an image and return it through MCP. `downscale_factor` lets clients request smaller rendered images."""
     asc_resolved = Path(asc_path).expanduser().resolve()
     open_path = asc_resolved
     title_hint = asc_resolved.name
@@ -8004,12 +7981,7 @@ def renderLtspicePlotImage(
     validate_capture: bool = True,
     render_session_id: str | None = None,
 ) -> CallToolResult:
-    """
-    Render one or more vectors from a RAW dataset to a plot image and return it through MCP.
-
-    Supports run_id/raw_path resolution and optional step filtering for stepped runs.
-    pane_layout: single | split | per_trace
-    """
+    """Render one or more vectors from a RAW dataset to a plot image and return it through MCP. Supports run_id/raw_path resolution and optional step filtering for stepped runs. `pane_layout`: single | split | per_trace."""
     if not vectors:
         raise ValueError("vectors must contain at least one vector name")
     session_payload: dict[str, Any] | None = None
@@ -8413,13 +8385,7 @@ def openLtspiceUi(
     path: str | None = None,
     target: str = "netlist",
 ) -> dict[str, Any]:
-    """
-    Open LTspice UI on a selected artifact.
-
-    If `path` is provided it is opened directly.
-    Otherwise, the path is resolved from `run_id` and `target`:
-    - target=netlist|raw|log
-    """
+    """Open LTspice UI on a selected artifact. If `path` is given, opens it directly; otherwise resolves from `run_id` + `target` (netlist|raw|log)."""
     if path:
         return _open_ui_target(path=Path(path).expanduser().resolve())
     run = _resolve_run(run_id)
@@ -8439,12 +8405,7 @@ def readLtspiceUiText(
     background: bool = True,
     settle_seconds: float = 0.8,
 ) -> dict[str, Any]:
-    """
-    Read visible LTspice window text using macOS Accessibility APIs.
-
-    Use this to compare parser outputs against text displayed in LTspice UI
-    (for example values shown in log windows).
-    """
+    """Read visible LTspice window text using macOS Accessibility APIs, e.g. to compare parser outputs against text displayed in the UI (such as log windows)."""
     resolved_path: Path | None = None
     if path:
         resolved_path = Path(path).expanduser().resolve()
@@ -8496,12 +8457,7 @@ def createSchematic(
     sheet_height: int = 680,
     open_ui: bool | None = None,
 ) -> dict[str, Any]:
-    """
-    Create an LTspice .asc schematic from structured component/wire/directive data.
-
-    Components must include: symbol, reference, x, y.
-    Optional component fields: value, orientation|rotation, attributes, pin_nets.
-    """
+    """Create an LTspice .asc schematic from structured component/wire/directive data. Each component must include symbol, reference, x, y; optional fields: value, orientation|rotation, attributes, pin_nets."""
     if not components:
         raise ValueError("components must contain at least one component")
 
@@ -8548,12 +8504,7 @@ def createSchematicFromNetlist(
     placement_mode: str = "smart",
     open_ui: bool | None = None,
 ) -> dict[str, Any]:
-    """
-    Create an LTspice .asc schematic from a SPICE netlist using auto-placement/routing.
-
-    Supports common two-pin primitives (R, C, L, D, V, I) plus multi-pin active elements
-    such as X-subcircuits, BJTs (Q), and MOSFETs (M) when symbols can be resolved.
-    """
+    """Create an LTspice .asc schematic from a SPICE netlist using auto-placement/routing. Supports two-pin primitives (R, C, L, D, V, I) and multi-pin active elements (X-subcircuits, BJTs (Q), MOSFETs (M)) when symbols can be resolved."""
     result = build_schematic_from_netlist(
         workdir=_runner.workdir,
         netlist_content=netlist_content,
@@ -8593,11 +8544,7 @@ def createSchematicFromTemplate(
     placement_mode: str | None = None,
     open_ui: bool | None = None,
 ) -> dict[str, Any]:
-    """
-    Create an LTspice .asc schematic from a JSON template.
-
-    Templates support type=netlist (auto-layout) and type=spec (explicit placement).
-    """
+    """Create an LTspice .asc schematic from a JSON template. Templates support type=netlist (auto-layout) and type=spec (explicit placement)."""
     result = build_schematic_from_template(
         workdir=_runner.workdir,
         template_name=template_name,
@@ -8648,11 +8595,7 @@ def createIntentCircuit(
     open_ui: bool | None = None,
     validate_schematic: bool = True,
 ) -> dict[str, Any]:
-    """
-    Create a circuit from high-level intent templates (filters, amplifier, regulator).
-
-    Returns schematic and sidecar netlist paths, and optionally validation payload.
-    """
+    """Create a circuit from high-level intent templates (filters, amplifier, regulator). Returns schematic and sidecar netlist paths, and optionally a validation payload."""
     normalized_intent = _normalize_intent(intent)
     merged_parameters = _merge_intent_parameters(normalized_intent, parameters)
     template_name = _INTENT_TEMPLATE_MAP[normalized_intent]
@@ -8699,11 +8642,7 @@ def syncSchematicFromNetlistFile(
     force: bool = False,
     open_ui: bool | None = None,
 ) -> dict[str, Any]:
-    """
-    Regenerate schematic from a netlist file only when source content changed.
-
-    Stores sync metadata in JSON so repeated calls are fast and deterministic.
-    """
+    """Regenerate schematic from a netlist file only when source content changed. Stores sync metadata in JSON so repeated calls are fast and deterministic."""
     result = sync_schematic_from_netlist_file(
         workdir=_runner.workdir,
         netlist_path=netlist_path,
@@ -8742,11 +8681,7 @@ def watchSchematicFromNetlistFile(
     force_initial_refresh: bool = False,
     open_ui: bool | None = None,
 ) -> dict[str, Any]:
-    """
-    Poll a netlist file and regenerate schematic whenever the netlist changes.
-
-    Returns update events for each rebuild detected during the watch interval.
-    """
+    """Poll a netlist file and regenerate schematic whenever it changes. Returns update events for each rebuild detected during the watch interval."""
     result = watch_schematic_from_netlist_file(
         workdir=_runner.workdir,
         netlist_path=netlist_path,
@@ -8841,11 +8776,7 @@ def runSimulation(
     show_ui: bool | None = None,
     open_raw_after_run: bool = False,
 ) -> dict[str, Any]:
-    """
-    Run LTspice in batch mode for the currently loaded netlist.
-
-    The ngspice-style `command` parameter is accepted for compatibility, but LTspice ignores it.
-    """
+    """Run LTspice in batch mode for the currently loaded netlist. The ngspice-style `command` parameter is accepted for compatibility but ignored by LTspice."""
     if _loaded_netlist is None:
         raise ValueError("No netlist is loaded. Use loadCircuit or loadNetlistFromFile first.")
 
@@ -8947,11 +8878,7 @@ def simulateNetlistFile(
 
 @mcp.tool()
 def validateSchematic(asc_path: str) -> dict[str, Any]:
-    """
-    Validate a schematic (.asc) for simulation readiness.
-
-    Checks for components, ground flag, and simulation directives in TEXT commands.
-    """
+    """Validate a schematic (.asc) for simulation readiness: checks for components, ground flag, and simulation directives in TEXT commands."""
     path = Path(asc_path).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(f"Schematic file not found: {path}")
@@ -9044,11 +8971,7 @@ def simulateSchematicFile(
     validate_first: bool = True,
     abort_on_validation_error: bool = False,
 ) -> dict[str, Any]:
-    """
-    Run LTspice batch simulation for an existing schematic (.asc) file.
-
-    Optional preflight validation is included to help agents debug schematics before simulation.
-    """
+    """Run LTspice batch simulation for an existing schematic (.asc) file, with optional preflight validation to help debug schematics before simulation."""
     global _loaded_netlist
     path = Path(asc_path).expanduser().resolve()
     if not path.exists():
@@ -9108,9 +9031,7 @@ def resolveSchematicSimulationTarget(
     asc_path: str,
     require_sidecar_on_macos: bool = True,
 ) -> dict[str, Any]:
-    """
-    Resolve which file simulateSchematicFile will execute and explain sidecar requirements.
-    """
+    """Resolve which file simulateSchematicFile will execute and explain sidecar requirements."""
     path = Path(asc_path).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(f"Schematic file not found: {path}")
@@ -9431,9 +9352,7 @@ def autoDebugSchematic(
     auto_fix_convergence: bool = True,
     model_search_paths: list[str] | None = None,
 ) -> dict[str, Any]:
-    """
-    Iteratively validate, simulate, and apply targeted fixes to a schematic until it runs or stalls.
-    """
+    """Iteratively validate, simulate, and apply targeted fixes to a schematic until it runs or stalls."""
     if max_iterations <= 0:
         raise ValueError("max_iterations must be > 0")
     path = Path(asc_path).expanduser().resolve()
@@ -10350,12 +10269,7 @@ def validateLtspiceMeasurements(
     show_ui: bool | None = None,
     open_raw_after_run: bool = False,
 ) -> dict[str, Any]:
-    """
-    Validate parsed metric endpoints against LTspice-native `.meas` values.
-
-    This reruns the source netlist with generated measurement directives and
-    compares LTspice's own reported values to the server's computed metrics.
-    """
+    """Validate parsed metric endpoints against LTspice-native `.meas` values by rerunning the source netlist with generated measurement directives and comparing LTspice's reported values to the server's computed metrics."""
     safe_abs_tolerance = _require_float("abs_tolerance", abs_tolerance, minimum=0.0, finite=True)
     safe_rel_tolerance_pct = _require_float("rel_tolerance_pct", rel_tolerance_pct, minimum=0.0, finite=True)
     if not vector.strip():
