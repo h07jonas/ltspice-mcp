@@ -1,7 +1,9 @@
 """Windows equivalents of the macOS-only LTspice UI/window-automation helpers.
 
 This module is imported lazily and only on ``platform.system() == "Windows"``.
-It relies on ``pywin32`` for window discovery/automation and ``Pillow`` (and
+It relies on ``pywin32`` for window discovery/automation, ``uiautomation``
+(a pure-Python wrapper over Win32 UI Automation, via ``comtypes``) for
+reading window text via a UI-Automation-tree walk, and ``Pillow`` (and
 optionally ``mss``) for screenshot capture/processing. Those packages are
 declared as ``sys_platform == "win32"`` extras in ``pyproject.toml`` so they
 are not required on macOS/Linux.
@@ -234,36 +236,15 @@ def close_ltspice_window(
     return result
 
 
-def read_ltspice_window_text(
-    *,
-    title_hint: str = "",
-    exact_title: str | None = None,
-    window_id: int | None = None,
-    max_chars: int = 200000,
-) -> dict[str, Any]:
-    """Read text from a matching LTspice window's child controls (edit/static).
+_UIA_MAX_DEPTH = 24
+_UIA_MAX_NODES = 5000
 
-    This uses Win32 WM_GETTEXT on child controls rather than full UI
-    Automation, so it captures plain edit/static control text (log viewers,
-    dialogs) but not custom-drawn content LTspice paints itself (e.g. the
-    schematic canvas), which has no reasonable Windows text equivalent
-    either.
-    """
-    win32gui, _win32process = _require_pywin32()
-    safe_max_chars = max(512, min(2_000_000, int(max_chars)))
-    matches = find_ltspice_windows(
-        title_hint=title_hint, exact_title=exact_title, window_id=window_id
-    )
-    if not matches:
-        return {
-            "ok": False,
-            "status": "NO_MATCHING_WINDOW",
-            "error": "No matching LTspice window found.",
-            "text": "",
-            "matched_windows": 0,
-        }
 
-    hwnd = matches[0]["hwnd"]
+def _collect_wm_gettext_chunks(win32gui, hwnd: int) -> list[str]:
+    """Win32 WM_GETTEXT fallback: own window title plus direct child
+    edit/static control text. This only sees real child HWNDs, so it misses
+    anything exposed purely through UI Automation/MSAA (toolbar button
+    names, menu items, status bar text, owner-drawn dialog controls, etc.)."""
     collected: list[str] = []
 
     def _collect(child_hwnd: int, _extra: Any) -> None:
@@ -283,10 +264,181 @@ def read_ltspice_window_text(
         win32gui.EnumChildWindows(hwnd, _collect, None)
     except Exception:  # noqa: BLE001
         pass
+    return collected
 
-    text_value = "\n".join(dict.fromkeys(collected))
-    if len(text_value) > safe_max_chars:
-        text_value = text_value[:safe_max_chars]
+
+def _collect_window_text_uia(hwnd: int) -> list[str]:
+    """Walk the UI Automation tree rooted at `hwnd`, collecting Name/Value/
+    description text from every element, breadth-first. Mirrors the macOS
+    Accessibility-API walk in `ltspice.py`'s `_AX_TEXT_HELPER_SOURCE`
+    (`collectWindowText`): same bounded depth/node count, same dedup
+    strategy, so callers get comparable coverage on both platforms.
+
+    Classic MFC/Win32 controls (toolbar buttons, menu items, status bar
+    panes, dialog controls) are exposed to UI Automation via the built-in
+    MSAA-to-UIA bridge, so this reaches much more than WM_GETTEXT does.
+    A single owner-drawn/custom-painted control (e.g. LTspice's schematic
+    canvas) still exposes no children or name/value through UIA - there is
+    no text for us to read there on any platform, since it is pixels, not
+    Windows/Accessibility API structured elements.
+    """
+    import uiautomation as auto
+
+    root = auto.ControlFromHandle(hwnd)
+    if root is None:
+        return []
+
+    chunks: list[str] = []
+    seen_runtime_ids: set[tuple] = set()
+    queue: list[tuple[Any, int]] = [(root, 0)]
+    nodes_visited = 0
+
+    while queue and nodes_visited < _UIA_MAX_NODES:
+        control, depth = queue.pop(0)
+        nodes_visited += 1
+
+        try:
+            runtime_id = tuple(control.GetRuntimeId())
+        except Exception:  # noqa: BLE001
+            runtime_id = None
+        if runtime_id is not None:
+            if runtime_id in seen_runtime_ids:
+                continue
+            seen_runtime_ids.add(runtime_id)
+
+        try:
+            name = control.Name
+        except Exception:  # noqa: BLE001
+            name = ""
+        if name:
+            chunks.append(name)
+
+        try:
+            value_pattern = control.GetValuePattern()
+            if value_pattern:
+                value = value_pattern.Value
+                if value:
+                    chunks.append(value)
+        except Exception:  # noqa: BLE001
+            pass
+
+        try:
+            legacy_pattern = control.GetLegacyIAccessiblePattern()
+            if legacy_pattern:
+                legacy_value = legacy_pattern.Value
+                if legacy_value:
+                    chunks.append(legacy_value)
+                legacy_description = legacy_pattern.Description
+                if legacy_description:
+                    chunks.append(legacy_description)
+        except Exception:  # noqa: BLE001
+            pass
+
+        if depth >= _UIA_MAX_DEPTH:
+            continue
+        try:
+            child = control.GetFirstChildControl()
+            while child:
+                queue.append((child, depth + 1))
+                child = child.GetNextSiblingControl()
+        except Exception:  # noqa: BLE001
+            pass
+
+    return chunks
+
+
+def _select_best_text(chunks: list[str], max_chars: int) -> str:
+    """Dedup, prefer .meas/measurement chunks, join, truncate. Mirrors the
+    macOS helper's `selectBestText` so both platforms rank/trim text the
+    same way."""
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        cleaned = chunk.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        ordered.append(cleaned)
+
+    if not ordered:
+        return ""
+
+    measurement_chunks = [
+        c for c in ordered if "measurement:" in c.lower() or ".meas" in c.lower()
+    ]
+    selected = measurement_chunks if measurement_chunks else ordered
+    combined = "\n".join(selected)
+    if len(combined) > max_chars:
+        return combined[:max_chars]
+    return combined
+
+
+def read_ltspice_window_text(
+    *,
+    title_hint: str = "",
+    exact_title: str | None = None,
+    window_id: int | None = None,
+    max_chars: int = 200000,
+) -> dict[str, Any]:
+    """Read text from a matching LTspice window.
+
+    Primary path: walk the window's UI Automation tree (via the
+    `uiautomation` package, which wraps Win32 UI Automation and its
+    built-in MSAA bridge) and collect Name/Value/description text from
+    every element - toolbar buttons, menu items, status bar text, dialog
+    controls, log viewers, etc. This is the Windows analogue of the macOS
+    Accessibility-API tree walk in `ltspice.py`.
+
+    Fallback: if UIA is unavailable or yields nothing, fall back to the
+    older WM_GETTEXT-only approach (own window title plus direct child
+    edit/static control text) so a missing/broken `uiautomation` install
+    doesn't regress the previously working case.
+
+    Known gap shared with the macOS path: LTspice's schematic canvas is a
+    single owner-drawn/custom-painted control. Neither UI Automation nor
+    the macOS Accessibility API can see component labels, wire routing, or
+    other schematic content painted directly by LTspice - there is no
+    accessible-tree representation of it on either platform, so this
+    cannot return schematic-canvas text no matter which backend is used.
+    """
+    win32gui, _win32process = _require_pywin32()
+    safe_max_chars = max(512, min(2_000_000, int(max_chars)))
+    matches = find_ltspice_windows(
+        title_hint=title_hint, exact_title=exact_title, window_id=window_id
+    )
+    if not matches:
+        return {
+            "ok": False,
+            "status": "NO_MATCHING_WINDOW",
+            "error": "No matching LTspice window found.",
+            "text": "",
+            "matched_windows": 0,
+        }
+
+    hwnd = matches[0]["hwnd"]
+
+    uia_error: str | None = None
+    uia_chunks: list[str] = []
+    try:
+        uia_chunks = _collect_window_text_uia(hwnd)
+    except ImportError as exc:
+        uia_error = f"uiautomation package unavailable: {exc}"
+    except Exception as exc:  # noqa: BLE001
+        uia_error = str(exc)
+
+    backend = "uia_tree_walk"
+    text_value = _select_best_text(uia_chunks, safe_max_chars)
+    chunk_count = len(uia_chunks)
+
+    if not text_value:
+        # Fall back to WM_GETTEXT (own title + direct child edit/static
+        # controls) if UIA raised, or simply found no text.
+        backend = "wm_gettext_fallback"
+        fallback_chunks = _collect_wm_gettext_chunks(win32gui, hwnd)
+        text_value = "\n".join(dict.fromkeys(c.strip() for c in fallback_chunks if c.strip()))
+        if len(text_value) > safe_max_chars:
+            text_value = text_value[:safe_max_chars]
+        chunk_count = len(fallback_chunks)
 
     return {
         "ok": bool(text_value),
@@ -296,6 +448,9 @@ def read_ltspice_window_text(
         "matched_windows": len(matches),
         "window_title": matches[0]["title"],
         "window_id": hwnd,
+        "chunk_count": chunk_count,
+        "backend": backend,
+        "uia_error": uia_error,
         "title_hint": title_hint,
         "exact_title": exact_title,
         "max_chars": safe_max_chars,

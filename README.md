@@ -185,6 +185,8 @@ control, the bash daemon script) have real Windows equivalents implemented in
 
 Installed automatically as `sys_platform == 'win32'` extras via `pip install -e .`:
 - `pywin32` — window discovery/automation (`win32gui`, `win32ui`, `win32process`)
+- `uiautomation` — UI Automation tree walk for `readLtspiceUiText` (wraps Win32 UI
+  Automation/`comtypes`; no separate COM boilerplate required)
 - `Pillow` — PNG encode/decode for capture, downscaling, and dimension probing
 - `mss` — full-screen region-grab fallback when `PrintWindow` yields a blank image
 
@@ -213,11 +215,25 @@ window capture or UI automation, so there is nothing to port.
 
 ### What's still macOS-only
 
-- **Window text reading is approximate, not equivalent.** `readLtspiceUiText` on Windows
-  reads text via `WM_GETTEXT` on the matched window's child controls (edit/static), which
-  works for simple dialogs and log-style windows but cannot read LTspice's self-drawn
-  canvas content (schematic/plot panes) — the macOS Accessibility API can do a bit more
-  here for dialog trees, but neither platform can read canvas-drawn content as text.
+- **Window text reading now walks the accessibility tree on both platforms, with the
+  same platform-shared limitation.** `readLtspiceUiText` on Windows walks the window's
+  UI Automation tree (via the `uiautomation` package, which reaches classic
+  MFC/Win32 controls through UIA's built-in MSAA bridge) and collects every element's
+  Name/Value/description text — toolbar button labels, menu items, status bar text,
+  dialog controls, log-viewer contents, and so on. This is a close analogue of the
+  macOS Accessibility-API tree walk (`collectWindowText` in `ltspice.py`), which walks
+  `AXChildren`/`AXRows`/`AXColumns`/`AXCells` collecting `AXValue`/`AXTitle`/
+  `AXDescription`/`AXHelp`/`AXText`. If UIA enumeration is unavailable or returns no
+  text, Windows falls back to the older `WM_GETTEXT`-on-child-controls approach so a
+  missing/broken `uiautomation` install doesn't regress the previously working case.
+  **Neither platform can read LTspice's self-drawn canvas content** (the schematic and
+  plot panes): LTspice paints those with a single owner-drawn/custom control that
+  exposes no children and no name/value through UI Automation (confirmed by walking a
+  live LTspice window with a schematic open — the canvas pane has zero UIA children),
+  and the macOS Accessibility API has the same blind spot for GDI/Cocoa custom-drawn
+  content. So component labels/values, wire routing, and other schematic-canvas
+  content are not recoverable as text on either platform — only surrounding chrome
+  (menus, toolbars, status bar, dialogs, log windows) is.
 - The Swift/ScreenCaptureKit helper compilation path (`_ensure_screencapturekit_helper`
   and friends) is macOS-only and is simply not invoked on Windows; capture goes through
   `windows_ui.capture_window` (`PrintWindow`, with an `mss` full-screen-region fallback)

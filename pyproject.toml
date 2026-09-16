@@ -13,6 +13,7 @@ dependencies = [
   "pywin32; sys_platform == 'win32'",
   "mss; sys_platform == 'win32'",
   "Pillow; sys_platform == 'win32'",
+  "uiautomation; sys_platform == 'win32'",
 ]
 
 [project.scripts]
